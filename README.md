@@ -2,7 +2,7 @@
 
 SmallRAG is a deliberately small, evaluation-friendly RAG baseline. It reuses the existing
 Confluence hybrid-search service as its retriever, fetches the selected pages, builds a bounded
-context, and calls an Anthropic-compatible Messages API to generate a cited answer.
+context, and calls an OpenAI-compatible Qwen chat API to generate a cited answer.
 
 ## API
 
@@ -15,6 +15,27 @@ context, and calls an Anthropic-compatible Messages API to generate a cited answ
 The query response includes the answer, citations, the exact `contexts` sent to the model,
 raw retrieval results (optional), token usage, per-stage latency, model name, and request ID.
 This metadata is intended for later evaluation.
+
+## Model services
+
+SmallRAG uses the locally deployed `qwen3-8b` service through the OpenAI-compatible Chat
+Completions API:
+
+```text
+LLM_BASE_URL=http://10.245.65.19:11082
+LLM_MODEL=qwen3-8b
+```
+
+Connectivity can be checked with:
+
+```bash
+curl --connect-timeout 5 http://10.245.65.19:11082/v1/models
+```
+
+The available `qwen3-embedding-0.6b` service at `http://10.245.65.19:11081` is not called by
+SmallRAG. Retrieval and ranking are already provided by the Confluence hybrid-search service, so
+adding a second embedding step here would duplicate that responsibility. The evaluation platform
+may use the embedding service independently for semantic metrics.
 
 ## Local setup
 
@@ -30,9 +51,10 @@ Edit `.env` and set the real values. The model gateway's model alias is required
 
 ```dotenv
 CONFLUENCE_KB_API_KEY=...
-ANTHROPIC_BASE_URL=http://model-gateway.example:4000
-ANTHROPIC_AUTH_TOKEN=...
-ANTHROPIC_MODEL=your-model-alias
+LLM_BASE_URL=http://10.245.65.19:11082
+LLM_API_KEY=
+LLM_MODEL=qwen3-8b
+LLM_ENABLE_THINKING=false
 ```
 
 Start the API:
@@ -96,10 +118,11 @@ CONFLUENCE_KB_URL=https://your-confluence-kb-service
 CONFLUENCE_KB_API_KEY=your-api-key
 CONFLUENCE_KB_VERIFY_SSL=false
 
-ANTHROPIC_BASE_URL=http://your-model-gateway
-ANTHROPIC_AUTH_TOKEN=your-model-token
-ANTHROPIC_MODEL=your-model-alias
-ANTHROPIC_VERIFY_SSL=true
+LLM_BASE_URL=http://10.245.65.19:11082
+LLM_API_KEY=
+LLM_MODEL=qwen3-8b
+LLM_VERIFY_SSL=true
+LLM_ENABLE_THINKING=false
 ```
 
 The two upstream URLs must be reachable from inside the container. Do not use `127.0.0.1`

@@ -63,21 +63,18 @@ class KnowledgeBaseClient:
             raise UpstreamError("knowledge_base", "Knowledge base request failed") from exc
 
 
-class AnthropicClient:
+class OpenAICompatibleClient:
     def __init__(
         self,
         base_url: str | None,
-        auth_token: str | None,
+        api_key: str | None,
         *,
         verify_ssl: bool,
         timeout: float,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        self._configured = bool(base_url and auth_token)
-        headers = {
-            "Authorization": f"Bearer {auth_token}",
-            "anthropic-version": "2023-06-01",
-        } if auth_token else {}
+        self._configured = bool(base_url)
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self._client = httpx.AsyncClient(
             base_url=(base_url or "http://unconfigured.invalid").rstrip("/"),
             headers=headers,
@@ -101,33 +98,38 @@ class AnthropicClient:
         prompt: str,
         max_tokens: int,
         temperature: float,
+        enable_thinking: bool,
     ) -> tuple[str, TokenUsage]:
         if not self._configured:
-            raise ConfigurationError("ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN must be configured")
+            raise ConfigurationError("LLM_BASE_URL must be configured")
 
         payload = {
             "model": model,
-            "system": system,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
             "max_tokens": max_tokens,
             "temperature": temperature,
+            "chat_template_kwargs": {"enable_thinking": enable_thinking},
         }
         try:
-            response = await self._client.post("/v1/messages", json=payload)
+            response = await self._client.post("/v1/chat/completions", json=payload)
             response.raise_for_status()
             data = response.json()
-            text_parts = [
-                block.get("text", "")
-                for block in data.get("content", [])
-                if isinstance(block, dict) and block.get("type") == "text"
-            ]
-            answer = "".join(text_parts).strip()
+            if not isinstance(data, dict):
+                raise ValueError("JSON root is not an object")
+            choices = data.get("choices") or []
+            message = choices[0].get("message") if choices and isinstance(choices[0], dict) else None
+            answer = message.get("content", "").strip() if isinstance(message, dict) else ""
             if not answer:
-                raise ValueError("response does not contain a text block")
+                raise ValueError("response does not contain choices[0].message.content")
             usage = data.get("usage") or {}
+            if not isinstance(usage, dict):
+                raise TypeError("usage is not an object")
             return answer, TokenUsage(
-                input_tokens=usage.get("input_tokens"),
-                output_tokens=usage.get("output_tokens"),
+                input_tokens=usage.get("prompt_tokens"),
+                output_tokens=usage.get("completion_tokens"),
             )
         except httpx.TimeoutException as exc:
             raise UpstreamError("model", "Model request timed out") from exc
@@ -135,4 +137,3 @@ class AnthropicClient:
             raise UpstreamError("model", f"Model gateway returned HTTP {exc.response.status_code}") from exc
         except (httpx.HTTPError, ValueError, TypeError) as exc:
             raise UpstreamError("model", "Model gateway returned an invalid response") from exc
-

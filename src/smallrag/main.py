@@ -9,7 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from smallrag import __version__
-from smallrag.clients import AnthropicClient, KnowledgeBaseClient
+from smallrag.clients import KnowledgeBaseClient, OpenAICompatibleClient
 from smallrag.config import Settings, get_settings
 from smallrag.errors import SmallRAGError
 from smallrag.models import (
@@ -26,17 +26,17 @@ from smallrag.service import RAGService
 
 def build_service(settings: Settings) -> RAGService:
     kb_key = settings.confluence_kb_api_key.get_secret_value() if settings.confluence_kb_api_key else None
-    auth_token = settings.anthropic_auth_token.get_secret_value() if settings.anthropic_auth_token else None
+    llm_api_key = settings.llm_api_key.get_secret_value() if settings.llm_api_key else None
     kb = KnowledgeBaseClient(
         settings.confluence_kb_url,
         kb_key,
         verify_ssl=settings.confluence_kb_verify_ssl,
         timeout=settings.rag_request_timeout_seconds,
     )
-    model = AnthropicClient(
-        settings.anthropic_base_url,
-        auth_token,
-        verify_ssl=settings.anthropic_verify_ssl,
+    model = OpenAICompatibleClient(
+        settings.llm_base_url,
+        llm_api_key,
+        verify_ssl=settings.llm_verify_ssl,
         timeout=settings.rag_request_timeout_seconds,
     )
     return RAGService(settings, kb, model)
@@ -126,4 +126,3 @@ def create_app(settings: Settings | None = None, service: RAGService | None = No
 
 
 app = create_app()
-

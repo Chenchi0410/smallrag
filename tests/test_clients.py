@@ -3,7 +3,8 @@ import json
 import httpx
 import pytest
 
-from smallrag.clients import AnthropicClient, KnowledgeBaseClient
+from smallrag.clients import KnowledgeBaseClient, OpenAICompatibleClient
+from smallrag.errors import UpstreamError
 
 
 @pytest.mark.asyncio
@@ -38,26 +39,29 @@ async def test_knowledge_base_search_and_fetch() -> None:
 
 
 @pytest.mark.asyncio
-async def test_anthropic_messages_contract() -> None:
+async def test_openai_compatible_chat_contract() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/v1/messages"
+        assert request.url.path == "/v1/chat/completions"
         assert request.headers["Authorization"] == "Bearer model-secret"
         body = json.loads(request.content)
         assert body["model"] == "test-model"
+        assert body["messages"][0] == {"role": "system", "content": "system"}
+        assert body["chat_template_kwargs"] == {"enable_thinking": False}
         return httpx.Response(
             200,
             json={
-                "content": [{"type": "text", "text": "Answer [1]"}],
-                "usage": {"input_tokens": 20, "output_tokens": 4},
+                "choices": [{"message": {"role": "assistant", "content": "Answer [1]"}}],
+                "usage": {"prompt_tokens": 20, "completion_tokens": 4},
             },
         )
 
-    client = AnthropicClient(
+    client = OpenAICompatibleClient(
         "http://model.local", "model-secret", verify_ssl=True, timeout=1,
         transport=httpx.MockTransport(handler),
     )
     answer, usage = await client.generate(
         model="test-model", system="system", prompt="question", max_tokens=100, temperature=0,
+        enable_thinking=False,
     )
     await client.close()
 
@@ -65,3 +69,18 @@ async def test_anthropic_messages_contract() -> None:
     assert usage.input_tokens == 20
     assert usage.output_tokens == 4
 
+
+@pytest.mark.asyncio
+async def test_openai_compatible_client_rejects_invalid_json_shape() -> None:
+    client = OpenAICompatibleClient(
+        "http://model.local", None, verify_ssl=True, timeout=1,
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=[])),
+    )
+
+    with pytest.raises(UpstreamError, match="invalid response"):
+        await client.generate(
+            model="test-model", system="system", prompt="question", max_tokens=100,
+            temperature=0, enable_thinking=False,
+        )
+
+    await client.close()

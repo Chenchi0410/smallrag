@@ -4,7 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from time import perf_counter
 
-from smallrag.clients import AnthropicClient, KnowledgeBaseClient
+from smallrag.clients import KnowledgeBaseClient, OpenAICompatibleClient
 from smallrag.config import Settings
 from smallrag.errors import ConfigurationError
 from smallrag.models import (
@@ -31,7 +31,7 @@ class FetchedPage:
 
 
 class RAGService:
-    def __init__(self, settings: Settings, kb: KnowledgeBaseClient, model: AnthropicClient) -> None:
+    def __init__(self, settings: Settings, kb: KnowledgeBaseClient, model: OpenAICompatibleClient) -> None:
         self.settings = settings
         self.kb = kb
         self.model = model
@@ -64,9 +64,9 @@ class RAGService:
         )
         page_fetch_ms = _elapsed_ms(fetch_started)
 
-        model_name = request.model or self.settings.anthropic_model
+        model_name = request.model or self.settings.llm_model
         if not model_name:
-            raise ConfigurationError("ANTHROPIC_MODEL must be configured or supplied in the request")
+            raise ConfigurationError("LLM_MODEL must be configured or supplied in the request")
 
         prompt = f"Confluence context:\n\n{context or '[No relevant context was retrieved.]'}\n\nQuestion:\n{request.query}"
         generation_started = perf_counter()
@@ -76,6 +76,7 @@ class RAGService:
             prompt=prompt,
             max_tokens=request.max_tokens,
             temperature=request.temperature,
+            enable_thinking=self.settings.llm_enable_thinking,
         )
         generation_ms = _elapsed_ms(generation_started)
 
@@ -98,8 +99,8 @@ class RAGService:
     async def readiness(self) -> dict[str, object]:
         checks: dict[str, object] = {
             "model_configuration": {
-                "ok": self.model.configured and bool(self.settings.anthropic_model),
-                "detail": "configured" if self.model.configured and self.settings.anthropic_model else "missing required model settings",
+                "ok": self.model.configured and bool(self.settings.llm_model),
+                "detail": "configured" if self.model.configured and self.settings.llm_model else "missing required model settings",
             }
         }
         try:

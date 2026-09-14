@@ -17,10 +17,11 @@ class Settings(BaseSettings):
     confluence_kb_api_key: SecretStr | None = None
     confluence_kb_verify_ssl: bool = False
 
-    anthropic_base_url: str | None = None
-    anthropic_auth_token: SecretStr | None = None
-    anthropic_model: str | None = None
-    anthropic_verify_ssl: bool = True
+    llm_base_url: str | None = None
+    llm_api_key: SecretStr | None = None
+    llm_model: str = "qwen3-8b"
+    llm_verify_ssl: bool = True
+    llm_enable_thinking: bool = False
 
     rag_default_top_k: int = Field(default=5, ge=1, le=20)
     rag_default_alpha: float = Field(default=0.5, ge=0, le=1)

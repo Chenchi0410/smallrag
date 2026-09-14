@@ -31,7 +31,7 @@ class FakeModel:
 
 async def test_query_returns_evaluation_metadata() -> None:
     model = FakeModel()
-    service = RAGService(Settings(anthropic_model="test-model"), FakeKB(), model)
+    service = RAGService(Settings(llm_model="test-model"), FakeKB(), model)
 
     response = await service.query(QueryRequest(query="How does it retrieve?"), "request-1")
 
@@ -48,7 +48,7 @@ async def test_query_returns_evaluation_metadata() -> None:
 
 
 async def test_query_can_omit_raw_retrieval() -> None:
-    service = RAGService(Settings(anthropic_model="test-model"), FakeKB(), FakeModel())
+    service = RAGService(Settings(llm_model="test-model"), FakeKB(), FakeModel())
 
     response = await service.query(
         QueryRequest(query="How?", include_retrieval=False), "request-2"
