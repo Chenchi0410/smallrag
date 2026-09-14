@@ -52,6 +52,17 @@ class Citation(BaseModel):
     excerpt: str
 
 
+class ContextChunk(BaseModel):
+    chunk_id: str
+    document_id: str
+    document_name: str
+    content: str
+    source: str
+    rank: int
+    retrieval_score: float
+    truncated: bool = False
+
+
 class TokenUsage(BaseModel):
     input_tokens: int | None = None
     output_tokens: int | None = None
@@ -69,6 +80,7 @@ class QueryResponse(BaseModel):
     answer: str
     model: str
     citations: list[Citation]
+    contexts: list[ContextChunk]
     retrieval: RetrievalData | None = None
     usage: TokenUsage
     latency_ms: LatencyBreakdown
@@ -87,4 +99,3 @@ class ErrorResponse(BaseModel):
 class ReadinessResponse(BaseModel):
     status: str
     checks: dict[str, Any]
-

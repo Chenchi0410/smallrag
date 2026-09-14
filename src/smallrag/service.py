@@ -9,6 +9,7 @@ from smallrag.config import Settings
 from smallrag.errors import ConfigurationError
 from smallrag.models import (
     Citation,
+    ContextChunk,
     LatencyBreakdown,
     QueryRequest,
     QueryResponse,
@@ -56,7 +57,7 @@ class RAGService:
 
         fetch_started = perf_counter()
         pages = await self._fetch_pages(retrieval)
-        context, citations = self._build_context(
+        context, citations, contexts = self._build_context(
             retrieval,
             pages,
             request.max_context_chars or self.settings.rag_default_max_context_chars,
@@ -83,6 +84,7 @@ class RAGService:
             answer=answer,
             model=model_name,
             citations=citations,
+            contexts=contexts,
             retrieval=retrieval if request.include_retrieval else None,
             usage=usage,
             latency_ms=LatencyBreakdown(
@@ -132,9 +134,10 @@ class RAGService:
         retrieval: RetrievalData,
         pages: list[FetchedPage],
         max_chars: int,
-    ) -> tuple[str, list[Citation]]:
+    ) -> tuple[str, list[Citation], list[ContextChunk]]:
         chunks: list[str] = []
         citations: list[Citation] = []
+        contexts: list[ContextChunk] = []
         remaining = max_chars
 
         for page in pages:
@@ -144,7 +147,8 @@ class RAGService:
             if remaining <= len(prefix):
                 break
             body = page.content or result.excerpt
-            chunk = prefix + body[: remaining - len(prefix)]
+            available_body_chars = remaining - len(prefix)
+            chunk = prefix + body[:available_body_chars]
             chunks.append(chunk)
             citations.append(
                 Citation(
@@ -155,13 +159,24 @@ class RAGService:
                     excerpt=result.excerpt,
                 )
             )
+            contexts.append(
+                ContextChunk(
+                    chunk_id=f"context:{result.id}",
+                    document_id=result.id,
+                    document_name=result.title,
+                    content=chunk,
+                    source=result.url,
+                    rank=citation_number,
+                    retrieval_score=result.score,
+                    truncated=len(body) > available_body_chars,
+                )
+            )
             remaining -= len(chunk) + 2
             if remaining <= 0:
                 break
 
-        return "\n\n".join(chunks), citations
+        return "\n\n".join(chunks), citations, contexts
 
 
 def _elapsed_ms(started: float) -> int:
     return round((perf_counter() - started) * 1_000)
-

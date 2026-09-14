@@ -13,7 +13,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    confluence_kb_url: str = "https://10.240.210.96"
+    confluence_kb_url: str = "https://knowledge-base.example"
     confluence_kb_api_key: SecretStr | None = None
     confluence_kb_verify_ssl: bool = False
 
@@ -31,4 +31,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

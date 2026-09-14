@@ -37,6 +37,10 @@ async def test_query_returns_evaluation_metadata() -> None:
 
     assert response.answer.endswith("[1].")
     assert response.citations[0].page_id == "42"
+    assert response.contexts[0].document_id == "42"
+    assert response.contexts[0].content.startswith("[1] RAG Design")
+    assert response.contexts[0].content in model.prompt
+    assert response.contexts[0].truncated is False
     assert response.retrieval is not None
     assert response.retrieval.results[0].score == 0.9
     assert response.usage.input_tokens == 30
@@ -52,4 +56,4 @@ async def test_query_can_omit_raw_retrieval() -> None:
 
     assert response.retrieval is None
     assert len(response.citations) == 1
-
+    assert len(response.contexts) == 1

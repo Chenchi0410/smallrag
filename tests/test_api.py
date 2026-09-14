@@ -27,6 +27,7 @@ class FakeService:
             answer="No evidence.",
             model="test-model",
             citations=[],
+            contexts=[],
             retrieval=None,
             usage=TokenUsage(input_tokens=5, output_tokens=3),
             latency_ms=LatencyBreakdown(retrieval=1, page_fetch=0, generation=1, total=2),
@@ -65,4 +66,3 @@ async def test_validation_errors_do_not_echo_input() -> None:
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_error"
-
