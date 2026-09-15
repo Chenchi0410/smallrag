@@ -55,9 +55,11 @@ async def test_frontend_is_served() -> None:
             response = await client.get("/")
 
     assert response.status_code == 200
-    assert "SmallRAG" in response.text
+    assert "Confluence RAG" in response.text
     assert "检索文本" in response.text
     assert "/v1/query" in response.text
+    assert "召回数量" not in response.text
+    assert "语义权重" not in response.text
 
 
 async def test_retrieve_endpoint() -> None:
