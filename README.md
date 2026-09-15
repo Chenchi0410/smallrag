@@ -1,8 +1,9 @@
 # SmallRAG
 
 SmallRAG is a deliberately small, evaluation-friendly RAG baseline. It reuses the existing
-Confluence hybrid-search service as its retriever, fetches the selected pages, builds a bounded
-context, and calls an OpenAI-compatible Qwen chat API to generate a cited answer.
+Confluence hybrid-search service as its retriever, fetches the selected pages, selects a bounded
+query-relevant passage from each page, and calls an OpenAI-compatible Qwen chat API to generate a
+cited answer.
 
 ## API
 

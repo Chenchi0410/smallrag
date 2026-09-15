@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass
 from time import perf_counter
 
@@ -22,6 +23,10 @@ from smallrag.models import (
 SYSTEM_PROMPT = """You answer questions only from the supplied Confluence context.
 If the context does not contain enough information, say that clearly instead of guessing.
 Answer in the same language as the user's question. Cite supporting pages inline as [1], [2], etc."""
+
+_CONTEXT_CHUNK_CHARS = 1_200
+_CONTEXT_CHUNK_OVERLAP = 160
+_BREAK_MARKERS = ("\n\n", "\n", "。", "！", "？", ". ", "; ", "；")
 
 
 @dataclass
@@ -60,6 +65,7 @@ class RAGService:
         context, citations, contexts = self._build_context(
             retrieval,
             pages,
+            request.query,
             request.max_context_chars or self.settings.rag_default_max_context_chars,
         )
         page_fetch_ms = _elapsed_ms(fetch_started)
@@ -134,6 +140,7 @@ class RAGService:
     def _build_context(
         retrieval: RetrievalData,
         pages: list[FetchedPage],
+        query: str,
         max_chars: int,
     ) -> tuple[str, list[Citation], list[ContextChunk]]:
         chunks: list[str] = []
@@ -147,7 +154,8 @@ class RAGService:
             prefix = f"[{citation_number}] {result.title}\nURL: {result.url}\n"
             if remaining <= len(prefix):
                 break
-            body = page.content or result.excerpt
+            full_body = page.content or result.excerpt
+            body, reduced = _select_relevant_passage(full_body, query, result.excerpt)
             available_body_chars = remaining - len(prefix)
             chunk = prefix + body[:available_body_chars]
             chunks.append(chunk)
@@ -169,7 +177,7 @@ class RAGService:
                     source=result.url,
                     rank=citation_number,
                     retrieval_score=result.score,
-                    truncated=len(body) > available_body_chars,
+                    truncated=reduced or len(body) > available_body_chars,
                 )
             )
             remaining -= len(chunk) + 2
@@ -177,6 +185,74 @@ class RAGService:
                 break
 
         return "\n\n".join(chunks), citations, contexts
+
+
+def _select_relevant_passage(content: str, query: str, excerpt: str) -> tuple[str, bool]:
+    passages = _split_content(content)
+    if len(passages) <= 1:
+        return (passages[0] if passages else content.strip()), False
+
+    query_features = _text_features(query)
+    excerpt_features = _text_features(excerpt)
+
+    def score(passage: str) -> float:
+        passage_features = _text_features(passage)
+        query_coverage = _feature_coverage(query_features, passage_features)
+        excerpt_coverage = _feature_coverage(excerpt_features, passage_features)
+        return query_coverage + (2 * excerpt_coverage)
+
+    return max(passages, key=score), True
+
+
+def _split_content(content: str) -> list[str]:
+    text = content.strip()
+    if not text:
+        return []
+    if len(text) <= _CONTEXT_CHUNK_CHARS:
+        return [text]
+
+    passages: list[str] = []
+    blocks = [block.strip() for block in re.split(r"\n+", text) if block.strip()]
+    for block in blocks:
+        if len(block) <= _CONTEXT_CHUNK_CHARS:
+            passages.append(block)
+            continue
+
+        start = 0
+        while start < len(block):
+            proposed_end = min(start + _CONTEXT_CHUNK_CHARS, len(block))
+            end = proposed_end
+            if proposed_end < len(block):
+                minimum_break = start + (_CONTEXT_CHUNK_CHARS // 2)
+                boundary = max(
+                    (
+                        block.rfind(marker, minimum_break, proposed_end) + len(marker)
+                        for marker in _BREAK_MARKERS
+                    ),
+                    default=0,
+                )
+                if boundary > minimum_break:
+                    end = boundary
+
+            passage = block[start:end].strip()
+            if passage:
+                passages.append(passage)
+            if end >= len(block):
+                break
+            start = max(end - _CONTEXT_CHUNK_OVERLAP, start + 1)
+
+    return passages
+
+
+def _text_features(text: str) -> set[str]:
+    normalized = re.sub(r"[^0-9a-z_\u4e00-\u9fff]+", "", text.lower())
+    if len(normalized) < 3:
+        return {normalized} if normalized else set()
+    return {normalized[index : index + 3] for index in range(len(normalized) - 2)}
+
+
+def _feature_coverage(expected: set[str], actual: set[str]) -> float:
+    return len(expected & actual) / len(expected) if expected else 0.0
 
 
 def _elapsed_ms(started: float) -> int:
