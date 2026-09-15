@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncIterator
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from smallrag import __version__
 from smallrag.clients import KnowledgeBaseClient, OpenAICompatibleClient
@@ -22,6 +23,9 @@ from smallrag.models import (
     RetrieveResponse,
 )
 from smallrag.service import RAGService
+
+
+_WEB_DIR = Path(__file__).with_name("web")
 
 
 def build_service(settings: Settings) -> RAGService:
@@ -89,6 +93,10 @@ def create_app(settings: Settings | None = None, service: RAGService | None = No
     @app.get("/health", tags=["health"])
     async def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
+
+    @app.get("/", include_in_schema=False)
+    async def web_app() -> FileResponse:
+        return FileResponse(_WEB_DIR / "index.html")
 
     @app.get(
         "/ready",

@@ -9,6 +9,7 @@ cited answer.
 
 - `POST /v1/retrieve` — retrieval only, for retriever evaluation
 - `POST /v1/query` — end-to-end retrieval and answer generation
+- `GET /` — browser UI showing the answer and exact retrieved contexts
 - `GET /health` — process liveness
 - `GET /ready` — knowledge-base availability and model-configuration readiness
 - `GET /docs` — interactive OpenAPI documentation
@@ -58,20 +59,32 @@ LLM_MODEL=qwen3-8b
 LLM_ENABLE_THINKING=false
 ```
 
-Start the API:
+Create a local self-signed certificate (or use a certificate issued by your CA):
 
 ```powershell
-.venv\Scripts\python -m uvicorn smallrag.main:app --host 0.0.0.0 --port 18081 --reload
+New-Item -ItemType Directory -Force certs
+openssl req -x509 -newkey rsa:2048 -nodes -days 365 `
+  -keyout certs/server.key -out certs/server.crt `
+  -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
 ```
 
-Then open <http://127.0.0.1:18081/docs>.
+For local development, change the certificate paths in `.env` to
+`certs/server.crt` and `certs/server.key`, then start the HTTPS API:
+
+```powershell
+.venv\Scripts\python -m smallrag.run
+```
+
+Then open <https://127.0.0.1:18082/> for the UI or
+<https://127.0.0.1:18082/docs> for OpenAPI. A browser warning is expected for a self-signed
+certificate.
 
 ## Example requests
 
 Retrieve documents without calling the model:
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:18081/v1/retrieve `
+Invoke-RestMethod -SkipCertificateCheck -Method Post -Uri https://127.0.0.1:18082/v1/retrieve `
   -ContentType application/json `
   -Body '{"query":"How does the firmware update process work?","top_k":5,"alpha":0.5}'
 ```
@@ -79,7 +92,7 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:18081/v1/retrieve `
 Run the full RAG pipeline:
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:18081/v1/query `
+Invoke-RestMethod -SkipCertificateCheck -Method Post -Uri https://127.0.0.1:18082/v1/query `
   -ContentType application/json `
   -Body '{"query":"How does the firmware update process work?","top_k":5}'
 ```
@@ -98,7 +111,7 @@ Tests use in-memory upstream mocks and require no credentials or network access:
 
 ## Ubuntu deployment
 
-The default service port is `18081`, avoiding commonly occupied ports such as 8000 and 8080.
+The default HTTPS service port is `18082`.
 Allow this port only from the RAG evaluation server or another trusted internal network.
 
 ### Option A: Docker (recommended)
@@ -124,6 +137,10 @@ LLM_API_KEY=
 LLM_MODEL=qwen3-8b
 LLM_VERIFY_SSL=true
 LLM_ENABLE_THINKING=false
+
+SERVER_PORT=18082
+HTTPS_CERTFILE=/certs/server.crt
+HTTPS_KEYFILE=/certs/server.key
 ```
 
 The two upstream URLs must be reachable from inside the container. Do not use `127.0.0.1`
@@ -132,13 +149,20 @@ for a service running on the Ubuntu host; use its LAN address or `host.docker.in
 Build and start SmallRAG:
 
 ```bash
+mkdir -p certs
+openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
+  -keyout certs/server.key -out certs/server.crt \
+  -subj "/CN=$(hostname)" -addext "subjectAltName=DNS:$(hostname)"
+sudo chown 10001:10001 certs/server.crt certs/server.key
+sudo chmod 600 certs/server.key
 docker build -t smallrag:latest .
 docker run -d \
   --name smallrag \
   --restart unless-stopped \
   --env-file .env \
   --add-host host.docker.internal:host-gateway \
-  -p 18081:18081 \
+  -v "$(pwd)/certs:/certs:ro" \
+  -p 18082:18082 \
   smallrag:latest
 ```
 
@@ -155,8 +179,8 @@ Check startup and readiness:
 
 ```bash
 docker logs --tail=100 smallrag
-curl http://127.0.0.1:18081/health
-curl http://127.0.0.1:18081/ready
+curl -k https://127.0.0.1:18082/health
+curl -k https://127.0.0.1:18082/ready
 ```
 
 `/health` only confirms that the API process is running. `/ready` also checks the knowledge-base
@@ -173,7 +197,8 @@ docker run -d \
   --restart unless-stopped \
   --env-file .env \
   --add-host host.docker.internal:host-gateway \
-  -p 18081:18081 \
+  -v "$(pwd)/certs:/certs:ro" \
+  -p 18082:18082 \
   smallrag:latest
 ```
 
@@ -191,6 +216,18 @@ sudo -u smallrag python3 -m venv /opt/smallrag/.venv
 sudo -u smallrag /opt/smallrag/.venv/bin/python -m pip install /opt/smallrag
 sudo -u smallrag cp /opt/smallrag/.env.example /opt/smallrag/.env
 sudo nano /opt/smallrag/.env
+sudo mkdir -p /opt/smallrag/certs
+sudo openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
+  -keyout /opt/smallrag/certs/server.key -out /opt/smallrag/certs/server.crt \
+  -subj "/CN=$(hostname)" -addext "subjectAltName=DNS:$(hostname)"
+sudo chown -R smallrag:smallrag /opt/smallrag/certs
+```
+
+For this non-container deployment, set these paths in `/opt/smallrag/.env`:
+
+```dotenv
+HTTPS_CERTFILE=/opt/smallrag/certs/server.crt
+HTTPS_KEYFILE=/opt/smallrag/certs/server.key
 ```
 
 Create `/etc/systemd/system/smallrag.service`:
@@ -207,7 +244,7 @@ User=smallrag
 Group=smallrag
 WorkingDirectory=/opt/smallrag
 EnvironmentFile=/opt/smallrag/.env
-ExecStart=/opt/smallrag/.venv/bin/python -m uvicorn smallrag.main:app --host 0.0.0.0 --port 18081
+ExecStart=/opt/smallrag/.venv/bin/python -m smallrag.run
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
@@ -224,13 +261,13 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now smallrag
 sudo systemctl status smallrag --no-pager
 sudo journalctl -u smallrag -n 100 --no-pager
-curl http://127.0.0.1:18081/ready
+curl -k https://127.0.0.1:18082/ready
 ```
 
 If UFW is enabled, restrict access to the evaluation server:
 
 ```bash
-sudo ufw allow from <EVALUATION_SERVER_IP> to any port 18081 proto tcp
+sudo ufw allow from <EVALUATION_SERVER_IP> to any port 18082 proto tcp
 ```
 
 ## Connect the evaluation platform
@@ -238,18 +275,18 @@ sudo ufw allow from <EVALUATION_SERVER_IP> to any port 18081 proto tcp
 From the evaluation server, first confirm network access:
 
 ```bash
-curl http://<SMALLRAG_SERVER_IP>:18081/ready
+curl --cacert <CA_CERTIFICATE> https://<SMALLRAG_SERVER_IP>:18082/ready
 ```
 
 In the generic RAG auto-detection page, enter this base URL:
 
 ```text
-http://<SMALLRAG_SERVER_IP>:18081
+https://<SMALLRAG_SERVER_IP>:18082
 ```
 
 The evaluator will probe `/v1/query`, send the question in the `query` field, and discover the
 top-level `answer` plus the `contexts` retrieval array. You may also enter the full endpoint
-`http://<SMALLRAG_SERVER_IP>:18081/v1/query`.
+`https://<SMALLRAG_SERVER_IP>:18082/v1/query`.
 
 The image runs as a non-root user and exposes a Docker health check. Secrets are read only from
 runtime environment variables. `.env` is ignored by both Git and Docker build context; do not put

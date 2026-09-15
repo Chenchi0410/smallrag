@@ -48,6 +48,18 @@ async def test_health_and_request_id() -> None:
     assert response.json()["status"] == "ok"
 
 
+async def test_frontend_is_served() -> None:
+    app = create_app(service=FakeService())
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get("/")
+
+    assert response.status_code == 200
+    assert "SmallRAG" in response.text
+    assert "检索文本" in response.text
+    assert "/v1/query" in response.text
+
+
 async def test_retrieve_endpoint() -> None:
     app = create_app(service=FakeService())
     async with app.router.lifespan_context(app):

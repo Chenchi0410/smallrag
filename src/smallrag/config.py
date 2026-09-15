@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     rag_default_max_context_chars: int = Field(default=20_000, ge=1_000, le=200_000)
     rag_request_timeout_seconds: float = Field(default=60, gt=0, le=300)
 
+    server_host: str = "0.0.0.0"
+    server_port: int = Field(default=18_082, ge=1, le=65_535)
+    https_certfile: str | None = None
+    https_keyfile: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:
